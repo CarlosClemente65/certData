@@ -1,30 +1,41 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using System;
 using System.Security.Cryptography;
-using System.Security.Permissions;
 using System.IO;
 using System.Security.Cryptography.X509Certificates;
-using System.Text.RegularExpressions;
+using MaterialSkin;
+using MaterialSkin.Controls;
 
 namespace certData
 {
-    public partial class frmInicio : Form
+    public partial class frmInicio : MaterialForm
     {
         string certificadoPath = string.Empty;
         string salida = "certData.txt";
         string password = string.Empty;
+        bool leido = false;
 
         public frmInicio()
         {
             InitializeComponent();
+
+            // Crea una instancia de MaterialSkinManager
+            var materialSkinManager = MaterialSkinManager.Instance;
+
+            // Añade el formulario al manager
+            materialSkinManager.AddFormToManage(this);
+
+            // Configura el esquema de color
+            materialSkinManager.Theme = MaterialSkinManager.Themes.LIGHT; // O DARK si prefieres un tema oscuro
+
+            // Define los colores primarios, oscuros y acentuados
+            materialSkinManager.ColorScheme = new ColorScheme(
+                Primary.Green600, // Color primario (verde)
+                Primary.Green700, // Color oscuro (más oscuro que el primario)
+                Primary.Green200, // Color claro (se usa en algunos acentos)
+                Accent.LightGreen200, // Color acentuado (se usa en elementos activos como botones)
+                TextShade.WHITE // Sombra de texto (blanco o negro)
+            );
 
         }
 
@@ -33,47 +44,34 @@ namespace certData
             try
             {
                 //Carga el certificado
-                X509Certificate2 x509 = new X509Certificate2(certificadoPath, password, X509KeyStorageFlags.Exportable);
+                X509Certificate2 Certificado = new X509Certificate2(certificadoPath, password, X509KeyStorageFlags.Exportable);
+                GestionCertificados gestion = new GestionCertificados();
 
-                //Grabar en un fichero los datos del certificado.
-                using (StreamWriter sw = new StreamWriter(salida))
+                leido = true;
+                //Obtiene los datos del certificado
+                string datosSubject = Certificado.Subject;
+                InfoCertificado infoPrevia = new InfoCertificado
                 {
-                    string datosCertificado = x509.ToString(true);
-                    string cifSociedad = extraeCadena(datosCertificado, "OID.1.3.6.1.4.1.5734.1.7=VATES-", "\r");
-                    string sociedad = extraeCadena(datosCertificado, "OID.1.3.6.1.4.1.5734.1.6=", "\r");
-                    string apellido1 = extraeCadena(datosCertificado, "OID.1.3.6.1.4.1.5734.1.2=", "\r");
-                    string apellido2 = extraeCadena(datosCertificado, "OID.1.3.6.1.4.1.5734.1.3=", "\r");
-                    string nombre = extraeCadena(datosCertificado, "OID.1.3.6.1.4.1.5734.1.1=", "\r");
+                    SerieCertificado = Certificado.SerialNumber,
+                    FechaValidez = Certificado.NotAfter,
+                    FechaEmision = Certificado.NotBefore,
+                    HuellaCertificado = Certificado.Thumbprint.ToString()
+                };
+                gestion.obtenerDatosSubject(datosSubject, infoPrevia);
+                gestion.exportarDatosCertificados(salida,infoPrevia);
 
-                    if (cifSociedad == "")
-                    {
-                        string dni = extraeCadena(datosCertificado, "OID.1.3.6.1.4.1.5734.1.4=", "\r");
-                        sw.WriteLine("Titular: {0} {1}, {2}", apellido1, apellido2, nombre);
-                        sw.WriteLine("NIF: {0}", dni);
-                    }
-                    else
-                    {
-                        string dni = extraeCadena(datosCertificado, "OID.1.3.6.1.4.1.5734.1.4=IDCES-", "\r");
-                        sw.WriteLine("Representante: {0} {1}, {2}", apellido1, apellido2, nombre);
-                        sw.WriteLine("NIF representante: {0}", dni);
-                        sw.WriteLine("Titular certificado: {0}", sociedad);
-                        sw.WriteLine("CIF titular certificado: {0}", cifSociedad);
-                    }
-                    sw.WriteLine("Valido desde: {0}", x509.NotBefore);
-                    sw.WriteLine("Valido hasta: {0}", x509.NotAfter);
-                    sw.WriteLine("Huella digital: {0}", x509.Thumbprint);
-                    sw.WriteLine("Numero de serie: {0}", x509.SerialNumber);
-                }
             }
 
             catch (FileNotFoundException)
             {
                 Console.WriteLine($"Error: El fichero {certificadoPath} no existe.");
+                leido = false;
             }
 
             catch (UnauthorizedAccessException)
             {
                 Console.WriteLine($"Error: No se puede acceder al fichero {certificadoPath} informado.");
+                leido = false;
             }
 
             catch (CryptographicException ex)
@@ -82,17 +80,19 @@ namespace certData
                 txtPassword1.Text = "";
                 txtPassword2.Text = "";
                 txtPassword1.Focus();
+                leido = false;
             }
 
             catch (Exception ex)
             {
                 Console.WriteLine($"Error: {ex.Message}");
+                leido = false;
             }
-
         }
 
         private void btnSeleccion_Click(object sender, EventArgs e)
         {
+            txtSeleccion.Text = "";
             if (ofdSeleccion.ShowDialog() == DialogResult.OK)
             {
                 // Obtiene la ruta completa del archivo seleccionado
@@ -115,8 +115,12 @@ namespace certData
                 }
                 password = txtPassword1.Text;
                 leerCertificado();
-                MessageBox.Show("Certificado leido correctamente", "Correcto", MessageBoxButtons.OK, MessageBoxIcon.Asterisk);
-                Application.Exit();
+                if (leido == true)
+                {
+                    MessageBox.Show("Certificado leido correctamente", "Correcto", MessageBoxButtons.OK, MessageBoxIcon.Asterisk);
+                    Environment.Exit(0);
+                }
+               
             }
 
             catch (Exception ex)
@@ -125,21 +129,6 @@ namespace certData
                 txtPassword1.Text = "";
                 txtPassword2.Text = "";
                 txtPassword1.Focus();
-            }
-        }
-
-        static string extraeCadena(string input, string inicio, string fin)
-        {
-            string pattern = $"{Regex.Escape(inicio)}(.*?){Regex.Escape(fin)}";
-            Match match = Regex.Match(input, pattern);
-
-            if (match.Success)
-            {
-                return match.Groups[1].Value;
-            }
-            else
-            {
-                return string.Empty;
             }
         }
     }
